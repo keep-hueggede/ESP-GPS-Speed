@@ -1,0 +1,4 @@
+{
+    "drivers": ["Robin", "Florian", "Nils", "Tim"],
+    "samplingHz": 1
+}
