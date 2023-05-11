@@ -16,80 +16,113 @@ TinyGPSPlus gps;
 
 typedef struct {
   int samplingDelay;
-  char drivers[5][15];
+  int aggregationCount;
+  char drivers[][10];
 } Config;
 
 typedef struct {
   String raceID;      //which race dataset?
   double speedPoint;  //speedpoints in kph --> max 15min recording
+  int iPoint;
 } SpeedPoint;
 
 typedef struct {
-  String raceID;        //which race dataset?
-  String driver;        //driver
-  time_t startTime;     //startTime of measurement
-  time_t endTime;       //endTime of measurement
-  int iPoints = 0;      //SpeedPoint Counter
-  double maxSpeed = 0;  //max speed
-  double avgSpeed = 0;  //avg speed
+  String raceID;     //which race dataset?
+  String driver;     //driver
+  time_t startTime;  //startTime of measurement
+  time_t endTime;    //endTime of measurement
+  int iPoints = 0;   //SpeedPoint Counter
+  // double maxSpeed = 0;  //max speed // to expensive to read all data from filestore
+  // double avgSpeed = 0;  //avg speed
 } RaceSet;
 
 //global vars
 Config conf;
 RaceSet race;
+int currentDriver;
+boolean raceRunning = false;
 
 void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
-  
-  Serial.begin(9600);
+
+  Serial.begin(115200);
   while (!Serial) continue;  // wait for serial port to connect. Needed for native USB port only
+  Serial.println("---");
 
   //init GPS (serial connection)
   SerialGPS.begin(9600);
   while (!SerialGPS) continue;
 
   //init SD card
-  boolean sdCheck = SD.begin(CS);  
-  if(!sdCheck)  {
+  boolean sdCheck = SD.begin(CS);
+  if (!sdCheck) {
     Serial.println("SD Card open failed");
   }
   initConf(&conf);
+  currentDriver = 0;
 
-  race.driver = "Robin";
-  race.raceID = random();  // @TODO find a unique value that's different foreach measure
-  writeRaceSetJsonFile(&race, "/race" + race.raceID, true);
+  // @TODO find a unique value that's different foreach measure
+  //writeRaceSetJsonFile(&race, "/race" + race.raceID, true);
 }
 
 void loop() {
-  // SpeedPoint sp;
-  // measureSpeed(&sp);
-  // // //@TODO Write to SD card
-  // // Serial.print("\nRaceID: ");
-  // // Serial.print(race.raceID);
-  // // Serial.print("\nDriver: ");
-  // // Serial.print(race.driver);
-  // // Serial.print("\nKM/H: ");
-  // // Serial.print(sp.speedPoint);
-  // // // Serial.print("\nMax KM/H: ");
-  // // // Serial.print(race.maxSpeed);
-  // // // Serial.print("\nAvg KM/H: ");
-  // // // Serial.print(race.avgSpeed);
-  // // Serial.print("\nPoint Count: ");
-  // // Serial.print(race.iPoints);
+  if (raceRunning) {
+    SpeedPoint sp;
+    measureSpeed(&sp);
+    //@TODO Write to SD card
+    Serial.print("\nRaceID: ");
+    Serial.print(race.raceID);
+    Serial.print("\nDriver: ");
+    Serial.print(race.driver);
+    Serial.print("\nKM/H: ");
+    Serial.print(sp.speedPoint);
+    // Serial.print("\nMax KM/H: ");
+    // Serial.print(race.maxSpeed);
+    // Serial.print("\nAvg KM/H: ");
+    // Serial.print(race.avgSpeed);
+    Serial.print("\nPoint Count: ");
+    Serial.println(race.iPoints);
 
-  // delay(conf.samplingDelay);
-  // digitalWrite(LED_BUILTIN, LOW);
+    // delay(conf.samplingDelay);
+    digitalWrite(LED_BUILTIN, LOW);
+  }
 }
 
-void writeRaceSetJsonFile(RaceSet *race, String path, boolean overwrite){
-  StaticJsonDocument<256> raceJson;
+void writeRaceSetJsonFile(RaceSet* race, boolean overwrite) {
+  char path[13];
+  strcpy(path, race->raceID.c_str());
+  strcat(path, ".json");
+  StaticJsonDocument<128> raceJson;
+
+  Serial.print("path: ");
+  Serial.println(path);
+
   //TODO Map
+  raceJson["raceID"] = race->raceID;
+  raceJson["driver"] = race->driver;
+  raceJson["startTime"] = race->startTime;
+  raceJson["endTime"] = race->endTime;
+  raceJson["iPoints"] = race->iPoints;
+  // raceJson["maxSpeed"] = race->maxSpeed;
+  // raceJson["avgSpeed"] = race->avgSpeed;
 
   writeJsonFile(path, &raceJson, overwrite);
 }
+void writeSpeedpointToRaceFile(SpeedPoint* speedo) {
+  char path[13];
+  strcpy(path, race.raceID.c_str());
+  strcat(path, ".json");
+
+  StaticJsonDocument<64> speedoJson;
+  speedoJson["raceID"] = speedo->raceID;
+  speedoJson["speedPoint"] = speedo->speedPoint;
+  speedoJson["iPoint"] = speedo->iPoint;
+
+  writeJsonFile(path, &speedoJson, true);
+}
 
 //write to file overwrite: true -> overwrite, false -> append
-void writeJsonFile(String path, JsonDocument* fileJson, boolean overwrite) {
+void writeJsonFile(char* path, JsonDocument* fileJson, boolean overwrite) {
   // StaticJsonDocument<size> fileJson;
   File file;
   switch (overwrite) {
@@ -104,14 +137,14 @@ void writeJsonFile(String path, JsonDocument* fileJson, boolean overwrite) {
 
   if (!file) {
     digitalWrite(LED_BUILTIN, HIGH);
-    Serial.println(F("\nErr read file"));
+    Serial.println("Err read file");
   }
 
   DeserializationError error = serializeJson(*fileJson, file);  //"{'drivers': ['Robin', 'Florian', 'Nils', 'Tim'], 'samplingHz': 1}");
 
   if (error) {
     digitalWrite(LED_BUILTIN, HIGH);
-    Serial.println(F("Err file to json"));
+    Serial.println("Err file to json");
   }
 
   file.close();
@@ -121,8 +154,8 @@ void writeJsonFile(String path, JsonDocument* fileJson, boolean overwrite) {
 void readJsonFile(char* path, JsonDocument* fileJson) {
   Serial.print("Read file: ");
   Serial.print(path);
-  Serial.print(" - existing: ");
-  Serial.println(SD.exists(path));
+  // Serial.print(" - existing: ");
+  // Serial.println(SD.exists(path));
 
 
   File file = SD.open(path, FILE_READ);
@@ -143,37 +176,37 @@ void readJsonFile(char* path, JsonDocument* fileJson) {
 
 //read config
 void initConf(Config* conf) {
-  //init config file
-  StaticJsonDocument<256> confJson;
-  char fName[] = "/config.rob";
-  readJsonFile(fName, &confJson);
 
-
-  conf->samplingDelay = confJson["samplingHz"];
-  conf->samplingDelay = (1000 / conf->samplingDelay) | 2000;
-  Serial.print("Delay: ");
-  Serial.println(conf->samplingDelay);
-
-  JsonArray arr = (confJson["drivers"]).as<JsonArray>();
-
-  for (int i = 0; i < 5; i++) {
-    int siz = sizeof(confJson["drivers"][i]) + 1;  //+1 because of termination (i guess)
-    if (siz > 0) strlcpy(conf->drivers[i], confJson["drivers"][i], siz);
-
-    //   Serial.print("\ndrivers: ");
-    //   Serial.print(conf->drivers[i]);
-
-    //   Serial.print(" - ");
-    //   Serial.print(siz);
-    // }
+  conf->samplingDelay = 500;
+  conf->aggregationCount = 10;
+  for (int i = 0; i < 3; i++) {
+    switch (i) {
+      case 0:
+        strcpy(conf->drivers[i], "Robin");
+        break;
+      case 1:
+        strcpy(conf->drivers[i], "Florian");
+        break;
+      case 2:
+        strcpy(conf->drivers[i], "Nils");
+        break;
+    }
   }
 }
+
+
 
 void measureSpeed(SpeedPoint* speedo) {
   // Serial.println("Start GPS measure");
   if (SerialGPS.available()) {
-    speedo->speedPoint = gps.speed.kmph();
-    race.iPoints++;
+    double sum = 0.0;
+    for (int i = 0; i < conf.aggregationCount; i++) {
+      sum += gps.speed.kmph();
+      delay(conf.samplingDelay);
+    }
+
+    speedo->speedPoint = sum / conf.aggregationCount;
+    speedo->iPoint = race.iPoints++;
     //race->maxSpeed = findMax(speedo->speedPoints, speedo->iPoints);
     //speedo->avgSpeed = calcAvg(speedo->speedPoints, speedo->iPoints);
   } else {
@@ -199,4 +232,39 @@ double calcAvg(double inputArray[], int* size) {
     sum = sum + inputArray[i];
   }
   return sum / *size;
+}
+
+void buildGPSDateTime(char* string) {
+  TinyGPSDate d = gps.date;
+  TinyGPSTime t = gps.time;
+
+  sprintf(string, "%04d-%02d-%02dT%02d:%02d:%02d.000Z", d.year(), d.month(), d.day(), t.hour(), t.minute(), t.second());
+}
+
+/**********************
+** Interrupt methods **
+**********************/
+void startRace() {
+  //TODO: new Raceset --> driver, starttime
+  //TODO: trigger via interrupt
+  race.driver = currentDriver;
+  race.raceID = random(0, 1000000);
+  buildGPSDateTime(race.startTime);
+  raceRunning = true;
+}
+
+void endRace() {
+  //TODO: finish Raceset --> endtime, calc's, write to file
+  //TODO: trigger via interrupt
+  raceRunning = false;
+  buildGPSDateTime(race.startTime);
+  writeRaceSetJsonFile(&race, true);
+}
+
+void switchDriver() {
+  if (currentDriver == 2) {
+    currentDriver = 0;
+  } else {
+    currentDriver++;
+  }
 }
