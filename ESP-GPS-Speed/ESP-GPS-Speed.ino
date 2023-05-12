@@ -1,6 +1,8 @@
 #include <SoftwareSerial.h>
 #include "TinyGPS++.h"
 #include <time.h>
+#include <Wire.h>  // Wire Bibliothek einbinden
+#include <LiquidCrystal_I2C.h>
 
 // include the SD library:
 #include <SPI.h>
@@ -9,10 +11,13 @@
 
 //Global defines
 #define CS 4
+#define DSELECT 2
+#define RACESTART 3
 
 //global vars
-SoftwareSerial SerialGPS(2, 3);  // RX, TX
+SoftwareSerial SerialGPS(0, 1);  // RX, TX
 TinyGPSPlus gps;
+LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 typedef struct {
   int samplingDelay;
@@ -37,6 +42,8 @@ typedef struct {
 } RaceSet;
 
 //global vars
+volatile int sStat2 = 0;  //Interrupt status Pin2
+volatile int sStat3 = 0;  //Interrupt status Pin3
 Config conf;
 RaceSet race;
 int currentDriver;
@@ -44,6 +51,8 @@ boolean raceRunning = false;
 
 void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
+  pinMode(DSELECT, INPUT);
+  pinMode(RACESTART, INPUT);
 
   Serial.begin(115200);
   while (!Serial) continue;  // wait for serial port to connect. Needed for native USB port only
@@ -53,6 +62,10 @@ void setup() {
   SerialGPS.begin(9600);
   while (!SerialGPS) continue;
 
+  //define interrupts
+  // attachInterrupt(0, switchDriver, CHANGE);
+  // attachInterrupt(1, startEndRace, CHANGE);
+
   //init SD card
   boolean sdCheck = SD.begin(CS);
   if (!sdCheck) {
@@ -61,8 +74,12 @@ void setup() {
   initConf(&conf);
   currentDriver = 0;
 
-  // @TODO find a unique value that's different foreach measure
-  //writeRaceSetJsonFile(&race, "/race" + race.raceID, true);
+  lcd.init();
+  lcd.backlight();
+
+  //print initial data to lcd
+  // lcd.setCursor(0, 0);
+  lcd.print("Test");
 }
 
 void loop() {
@@ -244,21 +261,21 @@ void buildGPSDateTime(char* string) {
 /**********************
 ** Interrupt methods **
 **********************/
-void startRace() {
-  //TODO: new Raceset --> driver, starttime
-  //TODO: trigger via interrupt
-  race.driver = currentDriver;
-  race.raceID = random(0, 1000000);
-  buildGPSDateTime(race.startTime);
-  raceRunning = true;
-}
-
-void endRace() {
-  //TODO: finish Raceset --> endtime, calc's, write to file
-  //TODO: trigger via interrupt
-  raceRunning = false;
-  buildGPSDateTime(race.startTime);
-  writeRaceSetJsonFile(&race, true);
+void startEndRace() {
+  if (!raceRunning) {
+    //TODO: new Raceset --> driver, starttime
+    //TODO: trigger via interrupt
+    race.driver = conf.drivers[currentDriver];
+    race.raceID = random(0, 1000000);
+    buildGPSDateTime(race.startTime);
+    raceRunning = true;
+  } else {
+    //TODO: finish Raceset --> endtime, calc's, write to file
+    //TODO: trigger via interrupt
+    raceRunning = false;
+    buildGPSDateTime(race.startTime);
+    writeRaceSetJsonFile(&race, true);
+  }
 }
 
 void switchDriver() {
