@@ -22,7 +22,7 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 typedef struct {
   int samplingDelay;
   int aggregationCount;
-  char drivers[][10];
+  char drivers[3][10];
 } Config;
 
 typedef struct {
@@ -71,37 +71,40 @@ void setup() {
   if (!sdCheck) {
     Serial.println("SD Card open failed");
   }
-  initConf(&conf);
+  initConf();
   currentDriver = 0;
 
   lcd.init();
   lcd.backlight();
 
   //print initial data to lcd
-  // lcd.setCursor(0, 0);
-  lcd.print("Test");
+  printLCD(0.0);
 }
 
 void loop() {
   if (raceRunning) {
     SpeedPoint sp;
     measureSpeed(&sp);
-    //@TODO Write to SD card
-    Serial.print("\nRaceID: ");
-    Serial.print(race.raceID);
-    Serial.print("\nDriver: ");
-    Serial.print(race.driver);
-    Serial.print("\nKM/H: ");
-    Serial.print(sp.speedPoint);
-    // Serial.print("\nMax KM/H: ");
-    // Serial.print(race.maxSpeed);
-    // Serial.print("\nAvg KM/H: ");
-    // Serial.print(race.avgSpeed);
-    Serial.print("\nPoint Count: ");
-    Serial.println(race.iPoints);
 
-    // delay(conf.samplingDelay);
-    digitalWrite(LED_BUILTIN, LOW);
+
+
+
+    // //@TODO Write to SD card
+    // Serial.print("\nRaceID: ");
+    // Serial.print(race.raceID);
+    // Serial.print("\nDriver: ");
+    // Serial.print(race.driver);
+    // Serial.print("\nKM/H: ");
+    // Serial.print(sp.speedPoint);
+    // // Serial.print("\nMax KM/H: ");
+    // // Serial.print(race.maxSpeed);
+    // // Serial.print("\nAvg KM/H: ");
+    // // Serial.print(race.avgSpeed);
+    // Serial.print("\nPoint Count: ");
+    // Serial.println(race.iPoints);
+
+    // // delay(conf.samplingDelay);
+    // digitalWrite(LED_BUILTIN, LOW);
   }
 }
 
@@ -192,20 +195,20 @@ void readJsonFile(char* path, JsonDocument* fileJson) {
 }
 
 //read config
-void initConf(Config* conf) {
+void initConf() {
 
-  conf->samplingDelay = 500;
-  conf->aggregationCount = 10;
+  conf.samplingDelay = 500;
+  conf.aggregationCount = 10;
   for (int i = 0; i < 3; i++) {
     switch (i) {
       case 0:
-        strcpy(conf->drivers[i], "Robin");
+        strcpy(conf.drivers[i], "ROBIN");
         break;
       case 1:
-        strcpy(conf->drivers[i], "Florian");
+        strcpy(conf.drivers[i], "GNADENLOS");
         break;
       case 2:
-        strcpy(conf->drivers[i], "Nils");
+        strcpy(conf.drivers[i], "KUHNEBOLLE");
         break;
     }
   }
@@ -258,6 +261,23 @@ void buildGPSDateTime(char* string) {
   sprintf(string, "%04d-%02d-%02dT%02d:%02d:%02d.000Z", d.year(), d.month(), d.day(), t.hour(), t.minute(), t.second());
 }
 
+void printLCD(double speed){
+    lcd.clear();    
+    lcd.setCursor(0, 0);        
+    lcd.print("Wheel:");    
+    lcd.print(conf.drivers[1]);
+
+    lcd.setCursor(0, 1);
+    if(raceRunning){              
+      lcd.print("Speed: ");
+      lcd.print(speed);
+      lcd.print("km/h");
+    }else{
+      lcd.print("Press Start");
+    }
+
+}
+
 /**********************
 ** Interrupt methods **
 **********************/
@@ -268,7 +288,7 @@ void startEndRace() {
     race.driver = conf.drivers[currentDriver];
     race.raceID = random(0, 1000000);
     buildGPSDateTime(race.startTime);
-    raceRunning = true;
+    raceRunning = true;    
   } else {
     //TODO: finish Raceset --> endtime, calc's, write to file
     //TODO: trigger via interrupt
@@ -279,6 +299,8 @@ void startEndRace() {
 }
 
 void switchDriver() {
+  if(raceRunning) return;
+
   if (currentDriver == 2) {
     currentDriver = 0;
   } else {
